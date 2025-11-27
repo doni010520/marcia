@@ -132,7 +132,7 @@ def criar_tabela_pontuacoes(doc, dados: RelatorioRequest):
             for paragraph in cell.paragraphs:
                 for run in paragraph.runs:
                     run.font.name = 'DejaVu Sans'
-                    run.font.size = Pt(9)
+                    run.font.size = Pt(10)
     
     logger.info("✓ Tabela criada com sucesso")
     return tabela
@@ -229,7 +229,7 @@ def substituir_campos_docx(doc_path: Path, dados: RelatorioRequest, output_path:
         for para in doc.paragraphs:
             for run in para.runs:
                 run.font.name = 'DejaVu Sans'
-                run.font.size = Pt(12)
+                run.font.size = Pt(10)
                 run.font.highlight_color = None
         
         # Salvar
