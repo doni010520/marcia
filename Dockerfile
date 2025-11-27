@@ -22,6 +22,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copiar código da aplicação
 COPY . .
 
+# Tornar script executável e configurar LibreOffice
+RUN chmod +x configure-libreoffice.sh && \
+    ./configure-libreoffice.sh
+
 # Criar diretórios necessários
 RUN mkdir -p /app/temp /app/assets/corpos_pdf /app/templates
 
