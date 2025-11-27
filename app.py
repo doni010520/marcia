@@ -1,6 +1,6 @@
 """
 API para geração de Relatórios LSP-R
-VERSÃO 1.5.0 - Fonte MONOESPAÇADA (Courier New) - SOLUÇÃO DEFINITIVA
+VERSÃO 2.0.0 - Tabela DOCX REAL com bordas invisíveis
 """
 
 from fastapi import FastAPI, HTTPException
@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 from pathlib import Path
 from docx import Document
 from docx.shared import Pt
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from datetime import datetime
 import subprocess
 import shutil
@@ -18,12 +20,12 @@ import re
 
 # Configuração de logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="API Relatório LSP-R", version="1.5.0")
+app = FastAPI(title="API Relatório LSP-R", version="2.0.0")
 
 # Diretórios
 BASE_DIR = Path(__file__).parent
@@ -75,152 +77,162 @@ class RelatorioRequest(BaseModel):
     arquivo: str
 
 
-def debug_documento(doc, label=""):
-    """Debug: mostrar estrutura do documento"""
-    logger.debug(f"=== DEBUG DOCUMENTO {label} ===")
-    logger.debug(f"Total de parágrafos: {len(doc.paragraphs)}")
+def remover_bordas_tabela(tabela):
+    """Remove todas as bordas de uma tabela"""
+    for row in tabela.rows:
+        for cell in row.cells:
+            tcPr = cell._element.get_or_add_tcPr()
+            tcBorders = OxmlElement('w:tcBorders')
+            for border_name in ['top', 'left', 'bottom', 'right', 'insideH', 'insideV']:
+                border = OxmlElement(f'w:{border_name}')
+                border.set(qn('w:val'), 'none')
+                tcBorders.append(border)
+            tcPr.append(tcBorders)
+
+
+def criar_tabela_pontuacoes(doc, dados: RelatorioRequest):
+    """Cria tabela DOCX real com bordas invisíveis"""
+    logger.info("→ Criando tabela de pontuações...")
     
-    for i, para in enumerate(doc.paragraphs[:15]):  # Primeiros 15 parágrafos
-        logger.debug(f"Parágrafo {i}: '{para.text[:100]}'")
-        logger.debug(f"  Total de runs: {len(para.runs)}")
-        for j, run in enumerate(para.runs[:5]):  # Primeiros 5 runs
-            logger.debug(f"    Run {j}: '{run.text}' | Font: {run.font.name} | Size: {run.font.size}")
+    # Criar tabela: 5 linhas (cabeçalho + 4 dados), 2 colunas
+    tabela = doc.add_table(rows=5, cols=2)
+    
+    # Remover bordas
+    remover_bordas_tabela(tabela)
+    
+    # CABEÇALHO
+    cabecalho_cells = tabela.rows[0].cells
+    cabecalho_cells[0].text = "Estilo de escuta"
+    cabecalho_cells[1].text = "Pontuação"
+    
+    # DADOS (ordem correta)
+    dados_tabela = [
+        (NOMES_ESTILOS["PESSOAS"], str(dados.pontuacoes.PESSOAS)),
+        (NOMES_ESTILOS["ACAO"], str(dados.pontuacoes.ACAO)),
+        (NOMES_ESTILOS["TEMPO"], str(dados.pontuacoes.TEMPO)),
+        (NOMES_ESTILOS["MENSAGEM"], str(dados.pontuacoes.MENSAGEM))
+    ]
+    
+    for i, (nome, pontuacao) in enumerate(dados_tabela, start=1):
+        row = tabela.rows[i]
+        row.cells[0].text = nome
+        row.cells[1].text = pontuacao
+        
+        # Alinhar número à direita
+        row.cells[1].paragraphs[0].alignment = 2  # RIGHT
+        
+        logger.info(f"  ✓ Linha {i}: {nome} = {pontuacao}")
+    
+    # Aplicar fonte DejaVu Sans em toda tabela
+    for row in tabela.rows:
+        for cell in row.cells:
+            for paragraph in cell.paragraphs:
+                for run in paragraph.runs:
+                    run.font.name = 'DejaVu Sans'
+                    run.font.size = Pt(10)
+    
+    logger.info("✓ Tabela criada com sucesso")
+    return tabela
 
 
 def substituir_campos_docx(doc_path: Path, dados: RelatorioRequest, output_path: Path):
-    """Substitui campos com DEBUG EXTREMO"""
+    """Substitui campos e cria tabela"""
     try:
-        logger.info("="*80)
-        logger.info(f"INICIANDO SUBSTITUIÇÃO DE CAMPOS")
-        logger.info(f"Template: {doc_path.name}")
+        logger.info("="*60)
+        logger.info(f"PROCESSANDO: {doc_path.name}")
         logger.info(f"Participante: {dados.participante}")
-        logger.info(f"Pontuações: P={dados.pontuacoes.PESSOAS}, A={dados.pontuacoes.ACAO}, T={dados.pontuacoes.TEMPO}, M={dados.pontuacoes.MENSAGEM}")
-        logger.info("="*80)
+        logger.info("="*60)
         
-        # Carregar documento
         doc = Document(doc_path)
         logger.info(f"✓ Documento carregado: {len(doc.paragraphs)} parágrafos")
         
-        # Debug inicial
-        debug_documento(doc, "ANTES")
+        paragrafos_para_remover = []
+        paragrafo_tabela_idx = None
         
-        # Preparar dados
-        pont_map = {
-            "PESSOAS": str(dados.pontuacoes.PESSOAS),
-            "ACAO": str(dados.pontuacoes.ACAO),
-            "TEMPO": str(dados.pontuacoes.TEMPO),
-            "MENSAGEM": str(dados.pontuacoes.MENSAGEM)
-        }
-        
-        predominante_texto = NOMES_ESTILOS_LONGOS[dados.predominante]
-        menos_desenvolvido_texto = NOMES_ESTILOS_LONGOS[dados.menosDesenvolvido]
-        
-        substituicoes_feitas = 0
-        
-        # Percorrer parágrafos
+        # 1. SUBSTITUIR NOME e MARCAR LINHAS DA TABELA para remoção
         for i, para in enumerate(doc.paragraphs):
-            texto_para = para.text
+            texto = para.text
             
-            # 1. NOME DO PARTICIPANTE
-            if "Nome completo" in texto_para:
-                logger.info(f"→ Parágrafo {i}: ENCONTRADO 'Nome completo'")
-                logger.debug(f"  Texto completo: '{texto_para}'")
-                logger.debug(f"  Total de runs: {len(para.runs)}")
-                
-                for j, run in enumerate(para.runs):
-                    logger.debug(f"    Run {j}: '{run.text}'")
+            # Substituir nome
+            if "Nome completo" in texto:
+                for run in para.runs:
                     if "Nome completo" in run.text:
-                        texto_antigo = run.text
                         run.text = run.text.replace("Nome completo", dados.participante)
-                        logger.info(f"  ✓ SUBSTITUÍDO: '{texto_antigo}' → '{run.text}'")
-                        substituicoes_feitas += 1
+                        logger.info(f"✓ Nome substituído: {dados.participante}")
             
-            # 2. SUBSTITUIR PONTUAÇÕES (SEM MEXER NA ESTRUTURA)
-            for estilo_key, pont_valor in pont_map.items():
-                estilo_nome = NOMES_ESTILOS[estilo_key]
-                
-                if estilo_nome in texto_para:
-                    logger.info(f"→ Parágrafo {i}: ENCONTRADO '{estilo_nome}'")
-                    
-                    # Procurar o run que contém APENAS o número
-                    for j in range(len(para.runs) - 1, -1, -1):
-                        run = para.runs[j]
-                        texto_run = run.text.strip()
-                        
-                        if texto_run.isdigit():
-                            # SUBSTITUIR apenas o número, mantendo estrutura original
-                            # Preservar EXATAMENTE o formato original
-                            numero_antigo = texto_run
-                            
-                            # Manter mesmo comprimento (padding com espaços se necessário)
-                            espacos_antes = len(run.text) - len(run.text.lstrip())
-                            pont_formatado = pont_valor.rjust(len(numero_antigo))
-                            
-                            run.text = ' ' * espacos_antes + pont_formatado
-                            
-                            logger.info(f"  ✓ SUBSTITUÍDO: '{numero_antigo}' → '{pont_valor}'")
-                            substituicoes_feitas += 1
+            # Identificar cabeçalho da tabela
+            if "Estilo de escuta" in texto and "Pontuação" in texto:
+                logger.info(f"✓ Encontrado cabeçalho da tabela (parágrafo {i})")
+                paragrafo_tabela_idx = i
+                paragrafos_para_remover.append(i)
+                continue
+            
+            # Marcar 4 linhas seguintes para remoção
+            if paragrafo_tabela_idx is not None:
+                offset = i - paragrafo_tabela_idx
+                if 1 <= offset <= 4:
+                    for estilo_nome in NOMES_ESTILOS.values():
+                        if estilo_nome in texto:
+                            logger.info(f"✓ Marcado para remoção: linha {i}")
+                            paragrafos_para_remover.append(i)
                             break
             
-            # 3. ESTILO PREDOMINANTE
-            if "Estilo predominante:" in texto_para and "Orientado" in texto_para:
-                logger.info(f"→ Parágrafo {i}: ENCONTRADO 'Estilo predominante'")
-                logger.debug(f"  Texto antes: '{texto_para}'")
-                
-                texto_completo = "".join(run.text for run in para.runs)
+            # Substituir predominante/menos desenvolvido
+            if "Estilo predominante:" in texto:
                 novo_texto = re.sub(
                     r'(Estilo predominante:\s*)(.+)',
-                    r'\1' + predominante_texto,
-                    texto_completo
+                    r'\1' + NOMES_ESTILOS_LONGOS[dados.predominante],
+                    "".join(run.text for run in para.runs)
                 )
-                
-                if novo_texto != texto_completo:
-                    for run in para.runs:
-                        run.text = ""
-                    if para.runs:
-                        para.runs[0].text = novo_texto
-                    logger.info(f"  ✓ SUBSTITUÍDO: '{predominante_texto}'")
-                    substituicoes_feitas += 1
+                for run in para.runs:
+                    run.text = ""
+                if para.runs:
+                    para.runs[0].text = novo_texto
+                logger.info("✓ Predominante substituído")
             
-            # 4. ESTILO MENOS DESENVOLVIDO
-            if "Estilo menos desenvolvido:" in texto_para and "Orientado" in texto_para:
-                logger.info(f"→ Parágrafo {i}: ENCONTRADO 'Estilo menos desenvolvido'")
-                
-                texto_completo = "".join(run.text for run in para.runs)
+            if "Estilo menos desenvolvido:" in texto:
                 novo_texto = re.sub(
                     r'(Estilo menos desenvolvido:\s*)(.+)',
-                    r'\1' + menos_desenvolvido_texto,
-                    texto_completo
+                    r'\1' + NOMES_ESTILOS_LONGOS[dados.menosDesenvolvido],
+                    "".join(run.text for run in para.runs)
                 )
-                
-                if novo_texto != texto_completo:
-                    for run in para.runs:
-                        run.text = ""
-                    if para.runs:
-                        para.runs[0].text = novo_texto
-                    logger.info(f"  ✓ SUBSTITUÍDO: '{menos_desenvolvido_texto}'")
-                    substituicoes_feitas += 1
+                for run in para.runs:
+                    run.text = ""
+                if para.runs:
+                    para.runs[0].text = novo_texto
+                logger.info("✓ Menos desenvolvido substituído")
         
-        # FORÇAR COURIER NEW (MONOESPAÇADA) - caracteres têm mesma largura
-        logger.info("→ Forçando Courier New 11pt (monoespaçada) em todo documento...")
-        runs_modificados = 0
+        # 2. REMOVER PARÁGRAFOS DA TABELA ANTIGA
+        logger.info(f"→ Removendo {len(paragrafos_para_remover)} parágrafos...")
+        for idx in sorted(paragrafos_para_remover, reverse=True):
+            p = doc.paragraphs[idx]._element
+            p.getparent().remove(p)
+        
+        # 3. INSERIR TABELA DOCX REAL
+        if paragrafo_tabela_idx is not None:
+            logger.info("→ Inserindo tabela DOCX...")
+            
+            # Criar tabela
+            tabela = criar_tabela_pontuacoes(doc, dados)
+            
+            # Inserir no documento (antes do próximo parágrafo)
+            para_ref = doc.paragraphs[max(0, paragrafo_tabela_idx - 1)]._element
+            para_ref.addnext(tabela._element)
+            
+            logger.info("✓ Tabela inserida")
+        
+        # 4. APLICAR DEJAVU SANS em todo documento
+        logger.info("→ Aplicando DejaVu Sans 12pt...")
         for para in doc.paragraphs:
             for run in para.runs:
-                run.font.name = 'Courier New'
-                run.font.size = Pt(11)  # Courier fica melhor em 11pt
+                run.font.name = 'DejaVu Sans'
+                run.font.size = Pt(12)
                 run.font.highlight_color = None
-                runs_modificados += 1
-        logger.info(f"  ✓ {runs_modificados} runs modificados com Courier New")
-        
-        # Debug final
-        debug_documento(doc, "DEPOIS")
         
         # Salvar
         doc.save(output_path)
-        logger.info("="*80)
-        logger.info(f"✓ DOCUMENTO SALVO: {output_path}")
-        logger.info(f"✓ TOTAL DE SUBSTITUIÇÕES: {substituicoes_feitas}")
-        logger.info("="*80)
+        logger.info(f"✓ Documento salvo: {output_path.name}")
+        logger.info("="*60)
         
         return True
         
@@ -230,9 +242,9 @@ def substituir_campos_docx(doc_path: Path, dados: RelatorioRequest, output_path:
 
 
 def converter_docx_para_pdf(docx_path: Path, pdf_path: Path):
-    """Converte DOCX para PDF"""
+    """Converte DOCX para PDF usando LibreOffice"""
     try:
-        logger.info(f"→ Convertendo DOCX → PDF: {docx_path.name}")
+        logger.info(f"→ Convertendo para PDF...")
         
         comando = [
             "libreoffice",
@@ -242,25 +254,17 @@ def converter_docx_para_pdf(docx_path: Path, pdf_path: Path):
             str(docx_path)
         ]
         
-        logger.debug(f"  Comando: {' '.join(comando)}")
-        
         result = subprocess.run(comando, capture_output=True, text=True, timeout=30)
         
-        logger.debug(f"  Return code: {result.returncode}")
-        logger.debug(f"  STDOUT: {result.stdout}")
-        
         if result.returncode != 0:
-            logger.error(f"  STDERR: {result.stderr}")
             raise Exception(f"Conversão falhou: {result.stderr}")
         
-        # Renomear
+        # Renomear se necessário
         arquivo_gerado = pdf_path.parent / f"{docx_path.stem}.pdf"
         if arquivo_gerado != pdf_path and arquivo_gerado.exists():
             shutil.move(str(arquivo_gerado), str(pdf_path))
         
-        tamanho = pdf_path.stat().st_size if pdf_path.exists() else 0
-        logger.info(f"  ✓ PDF gerado: {tamanho} bytes")
-        
+        logger.info(f"✓ PDF gerado: {pdf_path.name}")
         return True
         
     except Exception as e:
@@ -269,11 +273,9 @@ def converter_docx_para_pdf(docx_path: Path, pdf_path: Path):
 
 
 def juntar_pdfs(capa_pdf: Path, corpo_pdf: Path, output_pdf: Path):
-    """Junta PDFs"""
+    """Junta capa e corpo em um PDF final"""
     try:
-        logger.info(f"→ Juntando PDFs...")
-        logger.debug(f"  Capa: {capa_pdf} ({capa_pdf.stat().st_size} bytes)")
-        logger.debug(f"  Corpo: {corpo_pdf} ({corpo_pdf.stat().st_size} bytes)")
+        logger.info("→ Juntando PDFs...")
         
         merger = PdfMerger()
         merger.append(str(capa_pdf))
@@ -281,9 +283,7 @@ def juntar_pdfs(capa_pdf: Path, corpo_pdf: Path, output_pdf: Path):
         merger.write(str(output_pdf))
         merger.close()
         
-        tamanho = output_pdf.stat().st_size
-        logger.info(f"  ✓ PDF completo: {tamanho} bytes")
-        
+        logger.info(f"✓ PDF completo: {output_pdf.name}")
         return True
         
     except Exception as e:
@@ -293,7 +293,7 @@ def juntar_pdfs(capa_pdf: Path, corpo_pdf: Path, output_pdf: Path):
 
 @app.get("/")
 async def root():
-    return {"message": "API Relatório LSP-R", "version": "1.5.0 DEBUG"}
+    return {"message": "API Relatório LSP-R", "version": "2.0.0"}
 
 
 @app.get("/health")
@@ -303,7 +303,11 @@ async def health():
         "corpos_pdf_dir": CORPOS_PDF_DIR.exists(),
         "libreoffice": shutil.which("libreoffice") is not None
     }
-    return {"status": "ok" if all(checks.values()) else "warning", "checks": checks}
+    return {
+        "status": "ok" if all(checks.values()) else "warning",
+        "version": "2.0.0",
+        "checks": checks
+    }
 
 
 @app.get("/templates-disponiveis")
@@ -321,15 +325,13 @@ async def listar_templates():
 @app.post("/gerar-relatorio")
 async def gerar_relatorio(dados: RelatorioRequest):
     try:
-        logger.info("="*80)
-        logger.info(f"REQUISIÇÃO RECEBIDA")
-        logger.info(f"Participante: {dados.participante}")
-        logger.info(f"Arquivo: {dados.arquivo}")
-        logger.info("="*80)
+        logger.info("="*60)
+        logger.info("NOVA REQUISIÇÃO")
+        logger.info("="*60)
         
         # Validações
         if dados.predominante == dados.menosDesenvolvido:
-            raise HTTPException(400, "Predominante e menosDesenvolvido iguais")
+            raise HTTPException(400, "Predominante e menos desenvolvido não podem ser iguais")
         
         if dados.arquivo not in ARQUIVOS_VALIDOS:
             raise HTTPException(400, f"Arquivo inválido: {dados.arquivo}")
@@ -338,10 +340,10 @@ async def gerar_relatorio(dados: RelatorioRequest):
         corpo_pdf = CORPOS_PDF_DIR / f"{dados.arquivo}.pdf"
         
         if not template_docx.exists():
-            raise HTTPException(404, f"Template não encontrado: {template_docx}")
+            raise HTTPException(404, f"Template não encontrado")
         
         if not corpo_pdf.exists():
-            raise HTTPException(404, f"Corpo não encontrado: {corpo_pdf}")
+            raise HTTPException(404, f"Corpo não encontrado")
         
         # Arquivos temporários
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -355,9 +357,9 @@ async def gerar_relatorio(dados: RelatorioRequest):
             converter_docx_para_pdf(temp_docx, temp_pdf)
             juntar_pdfs(temp_pdf, corpo_pdf, temp_final)
             
-            logger.info("="*80)
+            logger.info("="*60)
             logger.info("✓✓✓ SUCESSO ✓✓✓")
-            logger.info("="*80)
+            logger.info("="*60)
             
             return FileResponse(
                 path=str(temp_final),
@@ -377,11 +379,11 @@ async def gerar_relatorio(dados: RelatorioRequest):
 
 @app.on_event("startup")
 async def startup():
-    logger.info("="*80)
-    logger.info("API Relatório LSP-R v1.5.0 DEBUG EXTREMO")
-    logger.info("="*80)
+    logger.info("="*60)
+    logger.info("API Relatório LSP-R v2.0.0 - Tabela DOCX Real")
+    logger.info("="*60)
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=3344, log_level="debug")
+    uvicorn.run(app, host="0.0.0.0", port=3344)
