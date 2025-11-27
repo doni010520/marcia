@@ -1,6 +1,6 @@
 """
 API para geração de Relatórios LSP-R
-VERSÃO 1.4.2 - Tabs padronizados + alinhamento fixo
+VERSÃO 1.4.3 - Tabs CALCULADOS baseado no tamanho do nome
 """
 
 from fastapi import FastAPI, HTTPException
@@ -23,7 +23,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="API Relatório LSP-R", version="1.4.2")
+app = FastAPI(title="API Relatório LSP-R", version="1.4.3")
 
 # Diretórios
 BASE_DIR = Path(__file__).parent
@@ -135,35 +135,45 @@ def substituir_campos_docx(doc_path: Path, dados: RelatorioRequest, output_path:
                         logger.info(f"  ✓ SUBSTITUÍDO: '{texto_antigo}' → '{run.text}'")
                         substituicoes_feitas += 1
             
-            # 2. PONTUAÇÕES - ALINHAMENTO FIXO
+            # 2. PONTUAÇÕES - TABS CALCULADOS baseado no tamanho do nome
             for estilo_key, pont_valor in pont_map.items():
                 estilo_nome = NOMES_ESTILOS[estilo_key]
                 
                 if estilo_nome in texto_para:
                     logger.info(f"→ Parágrafo {i}: ENCONTRADO '{estilo_nome}'")
-                    logger.debug(f"  Texto completo: '{texto_para}'")
                     
-                    # Procurar run com número
-                    for j in range(len(para.runs) - 1, -1, -1):
-                        run = para.runs[j]
-                        texto_run = run.text.strip()
-                        
-                        logger.debug(f"    Run {j}: '{run.text}' (strip: '{texto_run}')")
-                        
-                        if texto_run.isdigit():
-                            # PADRONIZAR: 5 tabs + número alinhado à direita com espaços
-                            # Isso garante alinhamento consistente para TODOS os números
-                            tabs = '\t\t\t\t\t'  # 5 tabs
-                            
-                            # Alinhar número à direita com espaços (campo de 3 chars)
-                            numero_alinhado = pont_valor.rjust(3)
-                            
-                            texto_antigo = run.text
-                            run.text = tabs + numero_alinhado
-                            
-                            logger.info(f"  ✓ SUBSTITUÍDO: '{texto_antigo.strip()}' → '{pont_valor}' (5 tabs + alinhado)")
-                            substituicoes_feitas += 1
-                            break
+                    # ESTRATÉGIA: Consolidar todos os runs e reconstruir o parágrafo
+                    # Nome + tabs calculados + número
+                    
+                    # Calcular tabs necessários baseado no comprimento do nome
+                    tamanho_nome = len(estilo_nome)
+                    
+                    # Lógica: nomes mais longos precisam menos tabs
+                    if tamanho_nome <= 20:
+                        num_tabs = 5  # Nomes curtos: mais tabs
+                    elif tamanho_nome <= 25:
+                        num_tabs = 4  # Nomes médios: tabs médios
+                    elif tamanho_nome <= 30:
+                        num_tabs = 3  # Nomes longos: menos tabs
+                    else:
+                        num_tabs = 2  # Nomes muito longos: mínimo de tabs
+                    
+                    tabs = '\t' * num_tabs
+                    numero_alinhado = pont_valor.rjust(2)
+                    
+                    # Limpar todos os runs e recriar com estrutura correta
+                    for run in para.runs:
+                        run.text = ""
+                    
+                    # Criar estrutura: Run 0 = nome, Run 1 = tabs + número
+                    if len(para.runs) >= 1:
+                        para.runs[0].text = estilo_nome + tabs + numero_alinhado
+                    else:
+                        para.add_run(estilo_nome + tabs + numero_alinhado)
+                    
+                    logger.info(f"  ✓ RECONSTRUÍDO: '{estilo_nome}' + {num_tabs} tabs + '{pont_valor}'")
+                    substituicoes_feitas += 1
+                    break
             
             # 3. ESTILO PREDOMINANTE
             if "Estilo predominante:" in texto_para and "Orientado" in texto_para:
@@ -210,7 +220,7 @@ def substituir_campos_docx(doc_path: Path, dados: RelatorioRequest, output_path:
         for para in doc.paragraphs:
             for run in para.runs:
                 run.font.name = 'DejaVu Sans'
-                run.font.size = Pt(10)
+                run.font.size = Pt(12)
                 run.font.highlight_color = None
                 runs_modificados += 1
         logger.info(f"  ✓ {runs_modificados} runs modificados com DejaVu Sans")
@@ -296,7 +306,7 @@ def juntar_pdfs(capa_pdf: Path, corpo_pdf: Path, output_pdf: Path):
 
 @app.get("/")
 async def root():
-    return {"message": "API Relatório LSP-R", "version": "1.4.2 DEBUG"}
+    return {"message": "API Relatório LSP-R", "version": "1.4.3 DEBUG"}
 
 
 @app.get("/health")
@@ -381,7 +391,7 @@ async def gerar_relatorio(dados: RelatorioRequest):
 @app.on_event("startup")
 async def startup():
     logger.info("="*80)
-    logger.info("API Relatório LSP-R v1.4.2 DEBUG EXTREMO")
+    logger.info("API Relatório LSP-R v1.4.3 DEBUG EXTREMO")
     logger.info("="*80)
 
 
