@@ -1,7 +1,7 @@
 """
 API para geração de Relatórios LSP-R (Listening Styles Profile - Revised)
 Gera capa personalizada e junta com corpo do relatório em PDF
-VERSÃO 1.2.0 - Força Arial 12pt e remove fundo azul no nome do participante
+VERSÃO 1.2.0 - Força Calibri 12pt e remove fundo azul no nome do participante
 """
 
 from fastapi import FastAPI, HTTPException
@@ -134,7 +134,7 @@ def substituir_texto_em_runs(para, texto_antigo: str, texto_novo: str, forcar_fo
         
         # Forçar formatação se necessário
         if forcar_formatacao:
-            run.font.name = 'Arial'
+            run.font.name = 'Calibri'
             run.font.size = Pt(12)
             run.font.highlight_color = None  # Remove fundo azul
     else:
@@ -144,7 +144,7 @@ def substituir_texto_em_runs(para, texto_antigo: str, texto_novo: str, forcar_fo
         
         # Forçar formatação se necessário
         if forcar_formatacao:
-            run.font.name = 'Arial'
+            run.font.name = 'Calibri'
             run.font.size = Pt(12)
             run.font.highlight_color = None
         
@@ -198,10 +198,10 @@ def substituir_campos_docx(doc_path: Path, dados: RelatorioRequest, output_path:
         for para in doc.paragraphs:
             texto_completo = para.text
             
-            # 1. Substituir nome do participante (FORÇAR Arial 12pt sem fundo)
+            # 1. Substituir nome do participante (FORÇAR Calibri 12pt sem fundo)
             if "Nome completo" in texto_completo:
                 if substituir_texto_em_runs(para, "Nome completo", participante_novo, forcar_formatacao=True):
-                    logger.info(f"✓ Substituído 'Nome completo' por '{participante_novo}' (Arial 12pt, sem fundo)")
+                    logger.info(f"✓ Substituído 'Nome completo' por '{participante_novo}' (Calibri 12pt, sem fundo)")
             
             # 2. Substituir pontuações na tabela
             for estilo_nome, pontuacao in pontuacoes_map.items():
