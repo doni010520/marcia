@@ -207,16 +207,16 @@ def substituir_campos_docx(doc_path: Path, dados: RelatorioRequest, output_path:
                     logger.info(f"  ✓ SUBSTITUÍDO: '{menos_desenvolvido_texto}'")
                     substituicoes_feitas += 1
         
-        # FORÇAR LIBERATION SANS
-        logger.info("→ Forçando Liberation Sans 12pt em todo documento...")
+        # FORÇAR DEJAVU SANS (mais confiável)
+        logger.info("→ Forçando DejaVu Sans 12pt em todo documento...")
         runs_modificados = 0
         for para in doc.paragraphs:
             for run in para.runs:
-                run.font.name = 'Liberation Sans'
+                run.font.name = 'DejaVu Sans'
                 run.font.size = Pt(12)
                 run.font.highlight_color = None
                 runs_modificados += 1
-        logger.info(f"  ✓ {runs_modificados} runs modificados")
+        logger.info(f"  ✓ {runs_modificados} runs modificados com DejaVu Sans")
         
         # Debug final
         debug_documento(doc, "DEPOIS")
