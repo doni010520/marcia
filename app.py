@@ -151,20 +151,35 @@ def substituir_campos_docx(doc_path: Path, dados: RelatorioRequest, output_path:
                         logger.debug(f"    Run {j}: '{run.text}' (strip: '{texto_run}')")
                         
                         if texto_run.isdigit():
-                            # Preservar prefixo (tabs/espaços)
-                            prefixo = ""
+                            # CONVERTER espaços múltiplos em TABS para alinhamento
+                            # Contar quantos espaços tem antes do número
+                            num_espacos = 0
                             for char in run.text:
-                                if char in ['\t', ' ']:
-                                    prefixo += char
+                                if char == ' ':
+                                    num_espacos += 1
+                                elif char == '\t':
+                                    break
                                 else:
                                     break
+                            
+                            # Se tem mais de 1 espaço, converter para tabs
+                            if num_espacos > 1:
+                                # Usar tabs ao invés de espaços
+                                prefixo = '\t\t\t'  # 3 tabs para bom alinhamento
+                            else:
+                                # Preservar tabs originais se existirem
+                                prefixo = ""
+                                for char in run.text:
+                                    if char in ['\t', ' ']:
+                                        prefixo += char
+                                    else:
+                                        break
                             
                             pont_formatado = pont_valor.rjust(2)
                             texto_antigo = run.text
                             run.text = prefixo + pont_formatado
                             
-                            logger.info(f"  ✓ SUBSTITUÍDO PONTUAÇÃO: '{texto_antigo}' → '{run.text}'")
-                            logger.debug(f"    Prefixo preservado: {len(prefixo)} caracteres")
+                            logger.info(f"  ✓ SUBSTITUÍDO PONTUAÇÃO: '{texto_antigo}' → '{run.text}' (tabs: {prefixo.count(chr(9))})")
                             substituicoes_feitas += 1
                             break
             
@@ -213,7 +228,7 @@ def substituir_campos_docx(doc_path: Path, dados: RelatorioRequest, output_path:
         for para in doc.paragraphs:
             for run in para.runs:
                 run.font.name = 'DejaVu Sans'
-                run.font.size = Pt(12)
+                run.font.size = Pt(10)
                 run.font.highlight_color = None
                 runs_modificados += 1
         logger.info(f"  ✓ {runs_modificados} runs modificados com DejaVu Sans")
