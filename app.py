@@ -1,6 +1,7 @@
 """
 API para geração de Relatórios LSP-R (Listening Styles Profile - Revised)
 Gera capa personalizada e junta com corpo do relatório em PDF
+VERSÃO 1.2.0 - Força Arial 12pt e remove fundo azul no nome do participante
 """
 
 from fastapi import FastAPI, HTTPException
@@ -11,10 +12,12 @@ import os
 import shutil
 from pathlib import Path
 from docx import Document
+from docx.shared import Pt
 from datetime import datetime
 import subprocess
 from PyPDF2 import PdfMerger
 import logging
+import re
 
 # Configuração de logging
 logging.basicConfig(level=logging.INFO)
@@ -24,7 +27,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="API Relatório LSP-R",
     description="API para geração de relatórios de Perfil de Escuta e Comunicação",
-    version="1.0.0"
+    version="1.2.0"
 )
 
 # Diretórios
@@ -85,9 +88,93 @@ class RelatorioRequest(BaseModel):
     arquivo: str = Field(..., description="Nome do arquivo template (sem extensão)")
 
 
+def substituir_texto_em_runs(para, texto_antigo: str, texto_novo: str, forcar_formatacao: bool = False):
+    """
+    Substitui texto em um parágrafo preservando formatação dos runs
+    Se forcar_formatacao=True, força Arial 12pt sem highlight
+    """
+    texto_completo = para.text
+    
+    if texto_antigo not in texto_completo:
+        return False
+    
+    # Encontrar posição do texto a substituir
+    inicio = texto_completo.find(texto_antigo)
+    fim = inicio + len(texto_antigo)
+    
+    # Calcular posição em cada run
+    pos_atual = 0
+    run_inicio = None
+    run_fim = None
+    offset_inicio = 0
+    offset_fim = 0
+    
+    for i, run in enumerate(para.runs):
+        run_len = len(run.text)
+        
+        if run_inicio is None and pos_atual <= inicio < pos_atual + run_len:
+            run_inicio = i
+            offset_inicio = inicio - pos_atual
+        
+        if pos_atual <= fim <= pos_atual + run_len:
+            run_fim = i
+            offset_fim = fim - pos_atual
+            break
+        
+        pos_atual += run_len
+    
+    if run_inicio is None or run_fim is None:
+        return False
+    
+    # Substituir texto
+    if run_inicio == run_fim:
+        # Texto está em um único run
+        run = para.runs[run_inicio]
+        run.text = run.text[:offset_inicio] + texto_novo + run.text[offset_fim:]
+        
+        # Forçar formatação se necessário
+        if forcar_formatacao:
+            run.font.name = 'Arial'
+            run.font.size = Pt(12)
+            run.font.highlight_color = None  # Remove fundo azul
+    else:
+        # Texto está em múltiplos runs
+        run = para.runs[run_inicio]
+        run.text = run.text[:offset_inicio] + texto_novo
+        
+        # Forçar formatação se necessário
+        if forcar_formatacao:
+            run.font.name = 'Arial'
+            run.font.size = Pt(12)
+            run.font.highlight_color = None
+        
+        for i in range(run_inicio + 1, run_fim + 1):
+            para.runs[i].text = "" if i < run_fim else para.runs[i].text[offset_fim:]
+    
+    return True
+
+
+def substituir_numero_tabela(para, pontuacao: str):
+    """
+    Substitui o número em uma linha da tabela (última sequência de dígitos)
+    """
+    # Procurar último run com número
+    for i in range(len(para.runs) - 1, -1, -1):
+        run = para.runs[i]
+        # Procurar números no run
+        numeros = re.findall(r'\d+', run.text)
+        if numeros:
+            # Substituir último número encontrado
+            ultimo_numero = numeros[-1]
+            run.text = run.text.replace(ultimo_numero, pontuacao, 1)  # Substituir apenas primeira ocorrência da direita
+            return True
+    
+    return False
+
+
 def substituir_campos_docx(doc_path: Path, dados: RelatorioRequest, output_path: Path):
     """
-    Substitui campos dinâmicos no arquivo DOCX
+    Substitui campos dinâmicos no arquivo DOCX preservando 100% da formatação
     """
     try:
         doc = Document(doc_path)
@@ -96,60 +183,59 @@ def substituir_campos_docx(doc_path: Path, dados: RelatorioRequest, output_path:
         participante_novo = dados.participante
         
         # Pontuações
-        pont_pessoas = str(dados.pontuacoes.PESSOAS)
-        pont_acao = str(dados.pontuacoes.ACAO)
-        pont_tempo = str(dados.pontuacoes.TEMPO)
-        pont_mensagem = str(dados.pontuacoes.MENSAGEM)
+        pontuacoes_map = {
+            "Pessoas (Relacional)": str(dados.pontuacoes.PESSOAS),
+            "Ação (Processo)": str(dados.pontuacoes.ACAO),
+            "Tempo (Solução imediata)": str(dados.pontuacoes.TEMPO),
+            "Mensagem (Conteúdo / Analítico)": str(dados.pontuacoes.MENSAGEM)
+        }
         
-        # Estilos predominante e menos desenvolvido
+        # Estilos
         predominante_texto = NOMES_ESTILOS_LONGOS[dados.predominante]
         menos_desenvolvido_texto = NOMES_ESTILOS_LONGOS[dados.menosDesenvolvido]
         
         # Percorrer todos os parágrafos
         for para in doc.paragraphs:
-            # Substituir nome do participante
-            if "Nome completo" in para.text:
-                for run in para.runs:
-                    if "Nome completo" in run.text:
-                        run.text = run.text.replace("Nome completo", participante_novo)
+            texto_completo = para.text
             
-            # Substituir pontuações na tabela de dados
-            if "Pessoas (Relacional)" in para.text and "\t" in para.text:
-                for run in para.runs:
-                    # Procurar o run com o número (geralmente o último)
-                    if run.text.strip().isdigit():
-                        run.text = pont_pessoas
+            # 1. Substituir nome do participante (FORÇAR Arial 12pt sem fundo)
+            if "Nome completo" in texto_completo:
+                if substituir_texto_em_runs(para, "Nome completo", participante_novo, forcar_formatacao=True):
+                    logger.info(f"✓ Substituído 'Nome completo' por '{participante_novo}' (Arial 12pt, sem fundo)")
             
-            if "Ação (Processo)" in para.text and "\t" in para.text:
-                for run in para.runs:
-                    if run.text.strip().isdigit():
-                        run.text = pont_acao
+            # 2. Substituir pontuações na tabela
+            for estilo_nome, pontuacao in pontuacoes_map.items():
+                if estilo_nome in texto_completo:
+                    if substituir_numero_tabela(para, pontuacao):
+                        logger.info(f"✓ Substituído pontuação em '{estilo_nome}': {pontuacao}")
             
-            if "Tempo (Solução imediata)" in para.text and "\t" in para.text:
-                for run in para.runs:
-                    if run.text.strip().isdigit():
-                        run.text = pont_tempo
+            # 3. Substituir estilo predominante
+            if "Estilo predominante:" in texto_completo and "Orientado para" in texto_completo:
+                # Encontrar texto após "Estilo predominante: "
+                padrao = r"Estilo predominante:\s*(.+?)$"
+                match = re.search(padrao, texto_completo)
+                if match:
+                    texto_antigo = match.group(1).strip()
+                    if substituir_texto_em_runs(para, texto_antigo, predominante_texto):
+                        logger.info(f"✓ Substituído predominante: {predominante_texto}")
             
-            if "Mensagem (Conteúdo / Analítico)" in para.text and "\t" in para.text:
-                for run in para.runs:
-                    if run.text.strip().isdigit():
-                        run.text = pont_mensagem
-            
-            # Substituir linha do estilo predominante
-            if "Estilo predominante:" in para.text:
-                para.text = f"Estilo predominante: {predominante_texto}"
-            
-            # Substituir linha do estilo menos desenvolvido
-            if "Estilo menos desenvolvido:" in para.text:
-                para.text = f"Estilo menos desenvolvido: {menos_desenvolvido_texto}"
+            # 4. Substituir estilo menos desenvolvido
+            if "Estilo menos desenvolvido:" in texto_completo and "Orientado para" in texto_completo:
+                # Encontrar texto após "Estilo menos desenvolvido: "
+                padrao = r"Estilo menos desenvolvido:\s*(.+?)$"
+                match = re.search(padrao, texto_completo)
+                if match:
+                    texto_antigo = match.group(1).strip()
+                    if substituir_texto_em_runs(para, texto_antigo, menos_desenvolvido_texto):
+                        logger.info(f"✓ Substituído menos desenvolvido: {menos_desenvolvido_texto}")
         
         # Salvar documento modificado
         doc.save(output_path)
-        logger.info(f"DOCX modificado salvo em: {output_path}")
+        logger.info(f"✓ DOCX modificado salvo em: {output_path}")
         return True
         
     except Exception as e:
-        logger.error(f"Erro ao substituir campos no DOCX: {e}")
+        logger.error(f"✗ Erro ao substituir campos no DOCX: {e}")
         raise
 
 
@@ -179,7 +265,7 @@ def converter_docx_para_pdf(docx_path: Path, pdf_path: Path):
         if arquivo_gerado != pdf_path and arquivo_gerado.exists():
             shutil.move(str(arquivo_gerado), str(pdf_path))
         
-        logger.info(f"PDF gerado com sucesso: {pdf_path}")
+        logger.info(f"✓ PDF gerado com sucesso: {pdf_path}")
         return True
         
     except subprocess.TimeoutExpired:
@@ -209,7 +295,7 @@ def juntar_pdfs(capa_pdf: Path, corpo_pdf: Path, output_pdf: Path):
         merger.write(str(output_pdf))
         merger.close()
         
-        logger.info(f"PDF completo gerado: {output_pdf}")
+        logger.info(f"✓ PDF completo gerado: {output_pdf}")
         return True
         
     except Exception as e:
@@ -222,7 +308,7 @@ async def root():
     """Endpoint raiz"""
     return {
         "message": "API Relatório LSP-R",
-        "version": "1.0.0",
+        "version": "1.2.0",
         "endpoints": {
             "health": "/health",
             "gerar": "POST /gerar-relatorio",
@@ -245,7 +331,7 @@ async def health_check():
     
     return {
         "status": status,
-        "message": "API Relatório LSP-R v1.0",
+        "message": "API Relatório LSP-R v1.2.0",
         "checks": checks,
         "timestamp": datetime.now().isoformat()
     }
@@ -347,8 +433,7 @@ async def gerar_relatorio(dados: RelatorioRequest):
             )
             
         finally:
-            # Limpar arquivos temporários após um delay (para permitir download)
-            # Em produção, considere usar um job de limpeza agendado
+            # Limpar arquivos temporários após um delay
             pass
             
     except HTTPException:
@@ -365,7 +450,7 @@ async def gerar_relatorio(dados: RelatorioRequest):
 async def startup_event():
     """Executa ao iniciar a aplicação"""
     logger.info("=" * 50)
-    logger.info("API Relatório LSP-R iniciada")
+    logger.info("API Relatório LSP-R v1.2.0 iniciada")
     logger.info(f"Templates dir: {TEMPLATES_DIR}")
     logger.info(f"Assets dir: {ASSETS_DIR}")
     logger.info(f"Corpos PDF dir: {CORPOS_PDF_DIR}")
