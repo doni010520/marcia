@@ -1,6 +1,6 @@
 """
 API para geração de Relatórios LSP-R
-VERSÃO 2.0.0 - Tabela DOCX REAL com bordas invisíveis
+VERSÃO 2.0.1 - Tabela DOCX REAL com bordas invisíveis
 """
 
 from fastapi import FastAPI, HTTPException
@@ -25,7 +25,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="API Relatório LSP-R", version="2.0.0")
+app = FastAPI(title="API Relatório LSP-R", version="2.0.1")
 
 # Diretórios
 BASE_DIR = Path(__file__).parent
@@ -105,6 +105,9 @@ def criar_tabela_pontuacoes(doc, dados: RelatorioRequest):
     cabecalho_cells[0].text = "Estilo de escuta"
     cabecalho_cells[1].text = "Pontuação"
     
+    # Centralizar cabeçalho "Pontuação"
+    cabecalho_cells[1].paragraphs[0].alignment = 1  # CENTER
+    
     # DADOS (ordem correta)
     dados_tabela = [
         (NOMES_ESTILOS["PESSOAS"], str(dados.pontuacoes.PESSOAS)),
@@ -118,8 +121,8 @@ def criar_tabela_pontuacoes(doc, dados: RelatorioRequest):
         row.cells[0].text = nome
         row.cells[1].text = pontuacao
         
-        # Alinhar número à direita
-        row.cells[1].paragraphs[0].alignment = 2  # RIGHT
+        # Alinhar número ao CENTRO (embaixo de "Pontuação")
+        row.cells[1].paragraphs[0].alignment = 1  # CENTER
         
         logger.info(f"  ✓ Linha {i}: {nome} = {pontuacao}")
     
@@ -129,7 +132,7 @@ def criar_tabela_pontuacoes(doc, dados: RelatorioRequest):
             for paragraph in cell.paragraphs:
                 for run in paragraph.runs:
                     run.font.name = 'DejaVu Sans'
-                    run.font.size = Pt(10)
+                    run.font.size = Pt(9)
     
     logger.info("✓ Tabela criada com sucesso")
     return tabela
@@ -293,7 +296,7 @@ def juntar_pdfs(capa_pdf: Path, corpo_pdf: Path, output_pdf: Path):
 
 @app.get("/")
 async def root():
-    return {"message": "API Relatório LSP-R", "version": "2.0.0"}
+    return {"message": "API Relatório LSP-R", "version": "2.0.1"}
 
 
 @app.get("/health")
@@ -305,7 +308,7 @@ async def health():
     }
     return {
         "status": "ok" if all(checks.values()) else "warning",
-        "version": "2.0.0",
+        "version": "2.0.1",
         "checks": checks
     }
 
@@ -380,7 +383,7 @@ async def gerar_relatorio(dados: RelatorioRequest):
 @app.on_event("startup")
 async def startup():
     logger.info("="*60)
-    logger.info("API Relatório LSP-R v2.0.0 - Tabela DOCX Real")
+    logger.info("API Relatório LSP-R v2.0.1 - Tabela DOCX Real")
     logger.info("="*60)
 
 
