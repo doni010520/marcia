@@ -1,6 +1,6 @@
 """
 API para geração de Relatórios LSP-R
-VERSÃO 1.4.1 - DEBUG EXTREMO
+VERSÃO 1.4.2 - Tabs padronizados + alinhamento fixo
 """
 
 from fastapi import FastAPI, HTTPException
@@ -23,7 +23,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="API Relatório LSP-R", version="1.4.1")
+app = FastAPI(title="API Relatório LSP-R", version="1.4.2")
 
 # Diretórios
 BASE_DIR = Path(__file__).parent
@@ -135,7 +135,7 @@ def substituir_campos_docx(doc_path: Path, dados: RelatorioRequest, output_path:
                         logger.info(f"  ✓ SUBSTITUÍDO: '{texto_antigo}' → '{run.text}'")
                         substituicoes_feitas += 1
             
-            # 2. PONTUAÇÕES
+            # 2. PONTUAÇÕES - ALINHAMENTO FIXO
             for estilo_key, pont_valor in pont_map.items():
                 estilo_nome = NOMES_ESTILOS[estilo_key]
                 
@@ -151,35 +151,17 @@ def substituir_campos_docx(doc_path: Path, dados: RelatorioRequest, output_path:
                         logger.debug(f"    Run {j}: '{run.text}' (strip: '{texto_run}')")
                         
                         if texto_run.isdigit():
-                            # CONVERTER espaços múltiplos em TABS para alinhamento
-                            # Contar quantos espaços tem antes do número
-                            num_espacos = 0
-                            for char in run.text:
-                                if char == ' ':
-                                    num_espacos += 1
-                                elif char == '\t':
-                                    break
-                                else:
-                                    break
+                            # PADRONIZAR: 5 tabs + número alinhado à direita com espaços
+                            # Isso garante alinhamento consistente para TODOS os números
+                            tabs = '\t\t\t\t\t'  # 5 tabs
                             
-                            # Se tem mais de 1 espaço, converter para tabs
-                            if num_espacos > 1:
-                                # Usar tabs ao invés de espaços
-                                prefixo = '\t\t\t'  # 3 tabs para bom alinhamento
-                            else:
-                                # Preservar tabs originais se existirem
-                                prefixo = ""
-                                for char in run.text:
-                                    if char in ['\t', ' ']:
-                                        prefixo += char
-                                    else:
-                                        break
+                            # Alinhar número à direita com espaços (campo de 3 chars)
+                            numero_alinhado = pont_valor.rjust(3)
                             
-                            pont_formatado = pont_valor.rjust(2)
                             texto_antigo = run.text
-                            run.text = prefixo + pont_formatado
+                            run.text = tabs + numero_alinhado
                             
-                            logger.info(f"  ✓ SUBSTITUÍDO PONTUAÇÃO: '{texto_antigo}' → '{run.text}' (tabs: {prefixo.count(chr(9))})")
+                            logger.info(f"  ✓ SUBSTITUÍDO: '{texto_antigo.strip()}' → '{pont_valor}' (5 tabs + alinhado)")
                             substituicoes_feitas += 1
                             break
             
@@ -314,7 +296,7 @@ def juntar_pdfs(capa_pdf: Path, corpo_pdf: Path, output_pdf: Path):
 
 @app.get("/")
 async def root():
-    return {"message": "API Relatório LSP-R", "version": "1.4.1 DEBUG"}
+    return {"message": "API Relatório LSP-R", "version": "1.4.2 DEBUG"}
 
 
 @app.get("/health")
@@ -399,7 +381,7 @@ async def gerar_relatorio(dados: RelatorioRequest):
 @app.on_event("startup")
 async def startup():
     logger.info("="*80)
-    logger.info("API Relatório LSP-R v1.4.1 DEBUG EXTREMO")
+    logger.info("API Relatório LSP-R v1.4.2 DEBUG EXTREMO")
     logger.info("="*80)
 
 
