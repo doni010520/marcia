@@ -1,6 +1,6 @@
 """
 API para geração de Relatórios LSP-R
-VERSÃO 2.0.1 - Tabela DOCX REAL com bordas invisíveis
+VERSÃO 2.2.0 - Tabela DOCX REAL com bordas invisíveis
 """
 
 from fastapi import FastAPI, HTTPException
@@ -14,6 +14,7 @@ from docx.oxml.ns import qn
 from datetime import datetime
 import subprocess
 import shutil
+import base64
 from PyPDF2 import PdfMerger
 import logging
 import re
@@ -25,7 +26,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="API Relatório LSP-R", version="2.0.1")
+app = FastAPI(title="API Relatório LSP-R", version="2.2.0")
 
 # Diretórios
 BASE_DIR = Path(__file__).parent
@@ -132,7 +133,7 @@ def criar_tabela_pontuacoes(doc, dados: RelatorioRequest):
             for paragraph in cell.paragraphs:
                 for run in paragraph.runs:
                     run.font.name = 'DejaVu Sans'
-                    run.font.size = Pt(10)
+                    run.font.size = Pt(12)
     
     logger.info("✓ Tabela criada com sucesso")
     return tabela
@@ -229,7 +230,7 @@ def substituir_campos_docx(doc_path: Path, dados: RelatorioRequest, output_path:
         for para in doc.paragraphs:
             for run in para.runs:
                 run.font.name = 'DejaVu Sans'
-                run.font.size = Pt(10)
+                run.font.size = Pt(12)
                 run.font.highlight_color = None
         
         # Salvar
@@ -296,7 +297,7 @@ def juntar_pdfs(capa_pdf: Path, corpo_pdf: Path, output_pdf: Path):
 
 @app.get("/")
 async def root():
-    return {"message": "API Relatório LSP-R", "version": "2.0.1"}
+    return {"message": "API Relatório LSP-R", "version": "2.2.0"}
 
 
 @app.get("/health")
@@ -308,7 +309,7 @@ async def health():
     }
     return {
         "status": "ok" if all(checks.values()) else "warning",
-        "version": "2.0.1",
+        "version": "2.2.0",
         "checks": checks
     }
 
@@ -323,6 +324,303 @@ async def listar_templates():
             templates_completos.append(arquivo)
     
     return {"templates_completos": templates_completos, "total": len(templates_completos)}
+
+
+@app.post("/gerar-relatorio")
+async def gerar_relatorio(dados: RelatorioRequest):
+
+
+def gerar_html_capa(dados: RelatorioRequest) -> str:
+    """
+    Gera HTML da PRIMEIRA PÁGINA COMPLETA do relatório para email
+    Inclui: cabeçalho, tabela, predominante/menos desenvolvido E descrições dos 4 estilos
+    """
+    # Dados da tabela
+    dados_tabela = [
+        ("Pessoas (Relacional)", dados.pontuacoes.PESSOAS),
+        ("Ação (Processo)", dados.pontuacoes.ACAO),
+        ("Tempo (Solução imediata)", dados.pontuacoes.TEMPO),
+        ("Mensagem (Conteúdo / Analítico)", dados.pontuacoes.MENSAGEM)
+    ]
+    
+    # Textos longos
+    predominante = NOMES_ESTILOS_LONGOS[dados.predominante]
+    menos_desenvolvido = NOMES_ESTILOS_LONGOS[dados.menosDesenvolvido]
+    
+    # HTML formatado
+    html = f"""
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {{
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 650px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }}
+        .container {{
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        h1 {{
+            color: #2c3e50;
+            font-size: 22px;
+            margin-bottom: 25px;
+            text-align: center;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 15px;
+        }}
+        .participante {{
+            font-size: 16px;
+            margin-bottom: 30px;
+            padding: 10px;
+            background-color: #ecf0f1;
+            border-radius: 4px;
+        }}
+        .participante strong {{
+            color: #2c3e50;
+        }}
+        h2 {{
+            color: #34495e;
+            font-size: 18px;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 8px;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background-color: white;
+            border: 1px solid #ddd;
+        }}
+        th, td {{
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }}
+        th {{
+            background-color: #3498db;
+            color: white;
+            font-weight: 600;
+        }}
+        td:last-child {{
+            text-align: center;
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 16px;
+        }}
+        tr:last-child td {{
+            border-bottom: none;
+        }}
+        .destaque {{
+            background-color: #e8f4f8;
+            padding: 18px;
+            border-left: 4px solid #3498db;
+            margin: 20px 0;
+            border-radius: 4px;
+        }}
+        .destaque p {{
+            margin: 10px 0;
+            line-height: 1.5;
+        }}
+        .destaque strong {{
+            color: #2c3e50;
+        }}
+        h3 {{
+            color: #34495e;
+            font-size: 16px;
+            margin-top: 25px;
+            margin-bottom: 12px;
+        }}
+        .descricao-estilo {{
+            background-color: #f8f9fa;
+            padding: 15px;
+            margin: 12px 0;
+            border-left: 3px solid #95a5a6;
+            border-radius: 4px;
+        }}
+        .descricao-estilo p {{
+            margin: 0;
+            line-height: 1.6;
+        }}
+        .descricao-estilo strong {{
+            color: #2c3e50;
+            display: block;
+            margin-bottom: 5px;
+        }}
+        .footer {{
+            margin-top: 35px;
+            padding-top: 20px;
+            border-top: 2px solid #bdc3c7;
+            text-align: center;
+            font-style: italic;
+            color: #7f8c8d;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Relatório de Perfil de Escuta e Comunicação</h1>
+        
+        <div class="participante">
+            <strong>Participante:</strong> {dados.participante}
+        </div>
+        
+        <h2>Resultado geral</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Estilo de escuta</th>
+                    <th>Pontuação</th>
+                </tr>
+            </thead>
+            <tbody>
+"""
+    
+    # Adicionar linhas da tabela
+    for nome, pontuacao in dados_tabela:
+        html += f"""                <tr>
+                    <td>{nome}</td>
+                    <td>{pontuacao}</td>
+                </tr>
+"""
+    
+    html += f"""            </tbody>
+        </table>
+        
+        <div class="destaque">
+            <p><strong>Estilo predominante:</strong> {predominante}</p>
+            <p><strong>Estilo menos desenvolvido:</strong> {menos_desenvolvido}</p>
+        </div>
+        
+        <h3>Descrição geral dos 4 estilos:</h3>
+        
+        <div class="descricao-estilo">
+            <strong>Orientado para Pessoas (Relacional):</strong>
+            <p>valoriza o vínculo e empatia. Escuta com atenção às emoções e constrói confiança pela proximidade.</p>
+        </div>
+        
+        <div class="descricao-estilo">
+            <strong>Orientado para Ação (Processo):</strong>
+            <p>prefere conversas diretas, voltadas à solução e ao resultado. Gosta de foco e clareza, mas pode soar apressado.</p>
+        </div>
+        
+        <div class="descricao-estilo">
+            <strong>Orientado para o Tempo (Solução imediata):</strong>
+            <p>preza pela objetividade e gosta de ritmo na conversa. Evita desvios e busca eficiência.</p>
+        </div>
+        
+        <div class="descricao-estilo">
+            <strong>Orientado para Mensagem (Conteúdo / Analítico):</strong>
+            <p>escuta para compreender o sentido exato do que está sendo dito. Avalia argumentos, identifica contradições e busca precisão na comunicação.</p>
+        </div>
+        
+        <p class="footer">Essas informações serão aprofundadas no relatório anexo.</p>
+    </div>
+</body>
+</html>
+"""
+    
+    return html
+
+
+@app.post("/gerar-html-email")
+async def gerar_html_email(dados: RelatorioRequest):
+    """
+    Retorna apenas o HTML da capa para usar no corpo do email
+    Não gera PDF - só o HTML
+    """
+    try:
+        # Validações básicas
+        if dados.predominante == dados.menosDesenvolvido:
+            raise HTTPException(400, "Predominante e menos desenvolvido não podem ser iguais")
+        
+        html = gerar_html_capa(dados)
+        
+        return {
+            "html": html,
+            "participante": dados.participante,
+            "version": "2.2.0"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao gerar HTML: {e}")
+        raise HTTPException(500, str(e))
+
+
+@app.post("/gerar-relatorio-completo")
+async def gerar_relatorio_completo(dados: RelatorioRequest):
+    """
+    Gera PDF E retorna HTML para email em uma única chamada
+    Retorna JSON com: { pdf_base64, html, filename }
+    Útil para envio de emails com PDF anexo + HTML no corpo
+    """
+    try:
+        logger.info("="*60)
+        logger.info("REQUISIÇÃO COMPLETA (PDF + HTML)")
+        logger.info("="*60)
+        
+        # Validações
+        if dados.predominante == dados.menosDesenvolvido:
+            raise HTTPException(400, "Predominante e menos desenvolvido não podem ser iguais")
+        
+        if dados.arquivo not in ARQUIVOS_VALIDOS:
+            raise HTTPException(400, f"Arquivo inválido")
+        
+        template_docx = TEMPLATES_DIR / f"{dados.arquivo}.docx"
+        corpo_pdf = CORPOS_PDF_DIR / f"{dados.arquivo}.pdf"
+        
+        if not template_docx.exists() or not corpo_pdf.exists():
+            raise HTTPException(404, "Template ou corpo não encontrado")
+        
+        # Arquivos temporários
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        temp_docx = TEMP_DIR / f"capa_{timestamp}.docx"
+        temp_pdf = TEMP_DIR / f"capa_{timestamp}.pdf"
+        temp_final = TEMP_DIR / f"final_{timestamp}.pdf"
+        
+        # Gerar PDF
+        substituir_campos_docx(template_docx, dados, temp_docx)
+        converter_docx_para_pdf(temp_docx, temp_pdf)
+        juntar_pdfs(temp_pdf, corpo_pdf, temp_final)
+        
+        # Ler PDF como base64
+        with open(temp_final, 'rb') as f:
+            pdf_bytes = f.read()
+            pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+        
+        # Gerar HTML
+        html = gerar_html_capa(dados)
+        
+        logger.info("✓ PDF e HTML gerados")
+        logger.info("="*60)
+        
+        return {
+            "success": True,
+            "pdf_base64": pdf_base64,
+            "html": html,
+            "filename": f"relatorio_{dados.participante.replace(' ', '_')}.pdf",
+            "participante": dados.participante
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro: {e}", exc_info=True)
+        raise HTTPException(500, str(e))
 
 
 @app.post("/gerar-relatorio")
@@ -383,7 +681,7 @@ async def gerar_relatorio(dados: RelatorioRequest):
 @app.on_event("startup")
 async def startup():
     logger.info("="*60)
-    logger.info("API Relatório LSP-R v2.0.1 - Tabela DOCX Real")
+    logger.info("API Relatório LSP-R v2.2.0 - Tabela DOCX Real")
     logger.info("="*60)
 
 
