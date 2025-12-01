@@ -42,12 +42,12 @@ ARQUIVOS_VALIDOS = [
     'relatório_mais_mensagem_menos_ação',
     'relatório_mais_mensagem_menos_pessoas',
     'relatório_mais_mensagem_menos_tempo',
-    'relatório_mais_pessoas_menos_ação',
-    'relatório_mais_pessoas_menos_mensagem',
-    'relatório_mais_pessoas_menos_tempo',
-    'relatório_mais_tempo_menos_ação',
-    'relatório_mais_tempo_menos_mensagem',
-    'relatório_mais_tempo_menos_pessoas'
+    'relatório_mais_pessoas_e_menos_ação',
+    'relatório_mais_pessoas_e_menos_mensagem',
+    'relatório_mais_pessoas_e_menos_tempo',
+    'relatório_mais_tempo_e_menos_ação',
+    'relatório_mais_tempo_e_menos_mensagem',
+    'relatório_mais_tempo_e_menos_pessoas'
 ]
 
 NOMES_ESTILOS = {
