@@ -1,6 +1,6 @@
 """
 API para geração de Relatórios LSP-R
-VERSÃO 2.2.0 - HTML Email com primeira página completa
+VERSÃO 2.3.0 - HTML Email com primeira página completa
 """
 
 from fastapi import FastAPI, HTTPException
@@ -26,7 +26,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="API Relatório LSP-R", version="2.2.0")
+app = FastAPI(title="API Relatório LSP-R", version="2.3.0")
 
 # Diretórios
 BASE_DIR = Path(__file__).parent
@@ -296,7 +296,7 @@ def juntar_pdfs(capa_pdf: Path, corpo_pdf: Path, output_pdf: Path):
 
 
 def gerar_html_capa(dados: RelatorioRequest) -> str:
-    """Gera HTML da primeira página completa do relatório"""
+    """Gera HTML com formatação IDÊNTICA ao documento Word"""
     dados_tabela = [
         ("Pessoas (Relacional)", dados.pontuacoes.PESSOAS),
         ("Ação (Processo)", dados.pontuacoes.ACAO),
@@ -313,134 +313,190 @@ def gerar_html_capa(dados: RelatorioRequest) -> str:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        
         body {{
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 650px;
+            font-family: Aptos, Calibri, 'Segoe UI', Arial, sans-serif;
+            font-size: 12pt;
+            line-height: 1.15;
+            color: #000000;
+            background-color: #ffffff;
+            padding: 40px 60px;
+            max-width: 800px;
             margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
         }}
-        .container {{
-            background-color: white;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        
+        .logo-container {{
+            text-align: center;
+            margin-bottom: 20px;
         }}
+        
+        .logo {{
+            width: 80px;
+            height: auto;
+        }}
+        
         h1 {{
-            color: #2c3e50;
-            font-size: 22px;
-            margin-bottom: 25px;
+            font-size: 14pt;
+            font-weight: bold;
             text-align: center;
-            border-bottom: 3px solid #3498db;
-            padding-bottom: 15px;
+            margin: 20px 0 30px 0;
+            color: #000000;
         }}
+        
         .participante {{
-            font-size: 16px;
-            margin-bottom: 30px;
-            padding: 10px;
-            background-color: #ecf0f1;
-            border-radius: 4px;
+            font-size: 12pt;
+            margin-bottom: 25px;
+            line-height: 1.15;
         }}
+        
+        .participante strong {{
+            font-weight: bold;
+        }}
+        
         h2 {{
-            color: #34495e;
-            font-size: 18px;
-            margin-top: 30px;
-            margin-bottom: 15px;
-            border-bottom: 2px solid #3498db;
-            padding-bottom: 8px;
+            font-size: 12pt;
+            font-weight: bold;
+            margin: 25px 0 15px 0;
+            color: #000000;
         }}
-        table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin: 20px 0;
-            background-color: white;
-            border: 1px solid #ddd;
+        
+        .tabela-container {{
+            margin: 15px 0 25px 0;
         }}
-        th, td {{
-            padding: 12px 15px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
+        
+        .tabela-linha {{
+            display: flex;
+            margin-bottom: 2px;
         }}
-        th {{
-            background-color: #3498db;
-            color: white;
-            font-weight: 600;
+        
+        .tabela-cabecalho {{
+            font-weight: bold;
+            margin-bottom: 5px;
         }}
-        td:last-child {{
+        
+        .tabela-col-esquerda {{
+            flex: 1;
+            padding-right: 20px;
+        }}
+        
+        .tabela-col-direita {{
+            width: 100px;
             text-align: center;
-            font-weight: 600;
-            color: #2c3e50;
-            font-size: 16px;
         }}
-        .destaque {{
-            background-color: #e8f4f8;
-            padding: 18px;
-            border-left: 4px solid #3498db;
+        
+        .destaque-box {{
             margin: 20px 0;
-            border-radius: 4px;
         }}
+        
+        .destaque-box p {{
+            margin: 8px 0;
+            line-height: 1.15;
+        }}
+        
+        .destaque-box strong {{
+            font-weight: bold;
+        }}
+        
         h3 {{
-            color: #34495e;
-            font-size: 16px;
-            margin-top: 25px;
-            margin-bottom: 12px;
+            font-size: 12pt;
+            font-weight: bold;
+            margin: 25px 0 12px 0;
+            color: #000000;
         }}
-        .descricao-estilo {{
-            background-color: #f8f9fa;
-            padding: 15px;
+        
+        .descricao-paragrafo {{
             margin: 12px 0;
-            border-left: 3px solid #95a5a6;
-            border-radius: 4px;
+            text-indent: 0;
+            line-height: 1.15;
         }}
-        .footer {{
-            margin-top: 35px;
-            padding-top: 20px;
-            border-top: 2px solid #bdc3c7;
-            text-align: center;
+        
+        .descricao-paragrafo strong {{
+            font-weight: bold;
+        }}
+        
+        .footer-text {{
+            margin-top: 25px;
+            text-align: left;
             font-style: italic;
-            color: #7f8c8d;
+            line-height: 1.15;
+        }}
+        
+        @media print {{
+            body {{
+                padding: 20px;
+            }}
         }}
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Relatório de Perfil de Escuta e Comunicação</h1>
-        <div class="participante"><strong>Participante:</strong> {dados.participante}</div>
-        <h2>Resultado geral</h2>
-        <table>
-            <thead><tr><th>Estilo de escuta</th><th>Pontuação</th></tr></thead>
-            <tbody>"""
+    <div class="logo-container">
+        <svg class="logo" width="80" height="80" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="50" cy="50" r="45" fill="#4A90E2" opacity="0.2"/>
+            <circle cx="30" cy="35" r="8" fill="#4A90E2"/>
+            <circle cx="70" cy="35" r="8" fill="#4A90E2"/>
+            <circle cx="50" cy="50" r="8" fill="#4A90E2"/>
+            <circle cx="35" cy="60" r="6" fill="#4A90E2"/>
+            <circle cx="65" cy="60" r="6" fill="#4A90E2"/>
+            <circle cx="45" cy="70" r="5" fill="#4A90E2"/>
+            <circle cx="55" cy="70" r="5" fill="#4A90E2"/>
+            <path d="M30 35 L50 50 M70 35 L50 50 M50 50 L35 60 M50 50 L65 60 M35 60 L45 70 M65 60 L55 70" 
+                  stroke="#4A90E2" stroke-width="2" fill="none"/>
+        </svg>
+    </div>
+
+    <h1>Relatório de Perfil de Escuta e Comunicação</h1>
+    
+    <p class="participante"><strong>Participante:</strong> {dados.participante}</p>
+    
+    <h2>Resultado geral</h2>
+    
+    <div class="tabela-container">
+        <div class="tabela-linha tabela-cabecalho">
+            <div class="tabela-col-esquerda">Estilo de escuta</div>
+            <div class="tabela-col-direita">Pontuação</div>
+        </div>"""
     
     for nome, pont in dados_tabela:
-        html += f"<tr><td>{nome}</td><td>{pont}</td></tr>"
+        html += f"""
+        <div class="tabela-linha">
+            <div class="tabela-col-esquerda">{nome}</div>
+            <div class="tabela-col-direita">{pont}</div>
+        </div>"""
     
-    html += f"""</tbody>
-        </table>
-        <div class="destaque">
-            <p><strong>Estilo predominante:</strong> {predominante}</p>
-            <p><strong>Estilo menos desenvolvido:</strong> {menos_desenvolvido}</p>
-        </div>
-        <h3>Descrição geral dos 4 estilos:</h3>
-        <div class="descricao-estilo">
-            <strong>Orientado para Pessoas (Relacional):</strong>
-            <p>valoriza o vínculo e empatia. Escuta com atenção às emoções e constrói confiança pela proximidade.</p>
-        </div>
-        <div class="descricao-estilo">
-            <strong>Orientado para Ação (Processo):</strong>
-            <p>prefere conversas diretas, voltadas à solução e ao resultado. Gosta de foco e clareza, mas pode soar apressado.</p>
-        </div>
-        <div class="descricao-estilo">
-            <strong>Orientado para o Tempo (Solução imediata):</strong>
-            <p>preza pela objetividade e gosta de ritmo na conversa. Evita desvios e busca eficiência.</p>
-        </div>
-        <div class="descricao-estilo">
-            <strong>Orientado para Mensagem (Conteúdo / Analítico):</strong>
-            <p>escuta para compreender o sentido exato do que está sendo dito. Avalia argumentos, identifica contradições e busca precisão na comunicação.</p>
-        </div>
-        <p class="footer">Essas informações serão aprofundadas no relatório anexo.</p>
+    html += f"""
     </div>
+    
+    <div class="destaque-box">
+        <p><strong>Estilo predominante:</strong> {predominante}</p>
+        <p><strong>Estilo menos desenvolvido:</strong> {menos_desenvolvido}</p>
+    </div>
+    
+    <h3>Descrição geral dos 4 estilos:</h3>
+    
+    <p class="descricao-paragrafo">
+        <strong>Orientado para Pessoas (Relacional):</strong> valoriza o vínculo e empatia. Escuta com atenção às emoções e constrói confiança pela proximidade.
+    </p>
+    
+    <p class="descricao-paragrafo">
+        <strong>Orientado para Ação (Processo):</strong> prefere conversas diretas, voltadas à solução e ao resultado. Gosta de foco e clareza, mas pode soar apressado.
+    </p>
+    
+    <p class="descricao-paragrafo">
+        <strong>Orientado para o Tempo (Solução imediata):</strong> preza pela objetividade e gosta de ritmo na conversa. Evita desvios e busca eficiência.
+    </p>
+    
+    <p class="descricao-paragrafo">
+        <strong>Orientado para Mensagem (Conteúdo / Analítico):</strong> escuta para compreender o sentido exato do que está sendo dito. Avalia argumentos, identifica contradições e busca precisão na comunicação.
+    </p>
+    
+    <p class="footer-text">
+        Essas informações serão aprofundadas no relatório anexo.
+    </p>
 </body>
 </html>"""
     
@@ -449,7 +505,7 @@ def gerar_html_capa(dados: RelatorioRequest) -> str:
 
 @app.get("/")
 async def root():
-    return {"message": "API Relatório LSP-R", "version": "2.2.0"}
+    return {"message": "API Relatório LSP-R", "version": "2.3.0"}
 
 
 @app.get("/health")
@@ -461,7 +517,7 @@ async def health():
     }
     return {
         "status": "ok" if all(checks.values()) else "warning",
-        "version": "2.2.0",
+        "version": "2.3.0",
         "checks": checks
     }
 
@@ -490,7 +546,7 @@ async def gerar_html_email(dados: RelatorioRequest):
         return {
             "html": html,
             "participante": dados.participante,
-            "version": "2.2.0"
+            "version": "2.3.0"
         }
         
     except HTTPException:
@@ -605,7 +661,7 @@ async def gerar_relatorio(dados: RelatorioRequest):
 @app.on_event("startup")
 async def startup():
     logger.info("="*60)
-    logger.info("API Relatório LSP-R v2.2.0")
+    logger.info("API Relatório LSP-R v2.3.0")
     logger.info("="*60)
 
 
