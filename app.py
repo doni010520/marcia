@@ -1,6 +1,6 @@
 """
 API para geração de Relatórios LSP-R
-VERSÃO 2.2.0 - Tabela DOCX REAL com bordas invisíveis
+VERSÃO 2.2.0 - HTML Email com primeira página completa
 """
 
 from fastapi import FastAPI, HTTPException
@@ -122,7 +122,7 @@ def criar_tabela_pontuacoes(doc, dados: RelatorioRequest):
         row.cells[0].text = nome
         row.cells[1].text = pontuacao
         
-        # Alinhar número ao CENTRO (embaixo de "Pontuação")
+        # Alinhar número ao CENTRO
         row.cells[1].paragraphs[0].alignment = 1  # CENTER
         
         logger.info(f"  ✓ Linha {i}: {nome} = {pontuacao}")
@@ -295,47 +295,8 @@ def juntar_pdfs(capa_pdf: Path, corpo_pdf: Path, output_pdf: Path):
         raise
 
 
-@app.get("/")
-async def root():
-    return {"message": "API Relatório LSP-R", "version": "2.2.0"}
-
-
-@app.get("/health")
-async def health():
-    checks = {
-        "templates_dir": TEMPLATES_DIR.exists(),
-        "corpos_pdf_dir": CORPOS_PDF_DIR.exists(),
-        "libreoffice": shutil.which("libreoffice") is not None
-    }
-    return {
-        "status": "ok" if all(checks.values()) else "warning",
-        "version": "2.2.0",
-        "checks": checks
-    }
-
-
-@app.get("/templates-disponiveis")
-async def listar_templates():
-    templates_completos = []
-    for arquivo in ARQUIVOS_VALIDOS:
-        docx_exists = (TEMPLATES_DIR / f"{arquivo}.docx").exists()
-        pdf_exists = (CORPOS_PDF_DIR / f"{arquivo}.pdf").exists()
-        if docx_exists and pdf_exists:
-            templates_completos.append(arquivo)
-    
-    return {"templates_completos": templates_completos, "total": len(templates_completos)}
-
-
-@app.post("/gerar-relatorio")
-async def gerar_relatorio(dados: RelatorioRequest):
-
-
 def gerar_html_capa(dados: RelatorioRequest) -> str:
-    """
-    Gera HTML da PRIMEIRA PÁGINA COMPLETA do relatório para email
-    Inclui: cabeçalho, tabela, predominante/menos desenvolvido E descrições dos 4 estilos
-    """
-    # Dados da tabela
+    """Gera HTML da primeira página completa do relatório"""
     dados_tabela = [
         ("Pessoas (Relacional)", dados.pontuacoes.PESSOAS),
         ("Ação (Processo)", dados.pontuacoes.ACAO),
@@ -343,13 +304,10 @@ def gerar_html_capa(dados: RelatorioRequest) -> str:
         ("Mensagem (Conteúdo / Analítico)", dados.pontuacoes.MENSAGEM)
     ]
     
-    # Textos longos
     predominante = NOMES_ESTILOS_LONGOS[dados.predominante]
     menos_desenvolvido = NOMES_ESTILOS_LONGOS[dados.menosDesenvolvido]
     
-    # HTML formatado
-    html = f"""
-<!DOCTYPE html>
+    html = f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
@@ -385,9 +343,6 @@ def gerar_html_capa(dados: RelatorioRequest) -> str:
             background-color: #ecf0f1;
             border-radius: 4px;
         }}
-        .participante strong {{
-            color: #2c3e50;
-        }}
         h2 {{
             color: #34495e;
             font-size: 18px;
@@ -419,22 +374,12 @@ def gerar_html_capa(dados: RelatorioRequest) -> str:
             color: #2c3e50;
             font-size: 16px;
         }}
-        tr:last-child td {{
-            border-bottom: none;
-        }}
         .destaque {{
             background-color: #e8f4f8;
             padding: 18px;
             border-left: 4px solid #3498db;
             margin: 20px 0;
             border-radius: 4px;
-        }}
-        .destaque p {{
-            margin: 10px 0;
-            line-height: 1.5;
-        }}
-        .destaque strong {{
-            color: #2c3e50;
         }}
         h3 {{
             color: #34495e;
@@ -449,15 +394,6 @@ def gerar_html_capa(dados: RelatorioRequest) -> str:
             border-left: 3px solid #95a5a6;
             border-radius: 4px;
         }}
-        .descricao-estilo p {{
-            margin: 0;
-            line-height: 1.6;
-        }}
-        .descricao-estilo strong {{
-            color: #2c3e50;
-            display: block;
-            margin-bottom: 5px;
-        }}
         .footer {{
             margin-top: 35px;
             padding-top: 20px;
@@ -471,78 +407,81 @@ def gerar_html_capa(dados: RelatorioRequest) -> str:
 <body>
     <div class="container">
         <h1>Relatório de Perfil de Escuta e Comunicação</h1>
-        
-        <div class="participante">
-            <strong>Participante:</strong> {dados.participante}
-        </div>
-        
+        <div class="participante"><strong>Participante:</strong> {dados.participante}</div>
         <h2>Resultado geral</h2>
-        
         <table>
-            <thead>
-                <tr>
-                    <th>Estilo de escuta</th>
-                    <th>Pontuação</th>
-                </tr>
-            </thead>
-            <tbody>
-"""
+            <thead><tr><th>Estilo de escuta</th><th>Pontuação</th></tr></thead>
+            <tbody>"""
     
-    # Adicionar linhas da tabela
-    for nome, pontuacao in dados_tabela:
-        html += f"""                <tr>
-                    <td>{nome}</td>
-                    <td>{pontuacao}</td>
-                </tr>
-"""
+    for nome, pont in dados_tabela:
+        html += f"<tr><td>{nome}</td><td>{pont}</td></tr>"
     
-    html += f"""            </tbody>
+    html += f"""</tbody>
         </table>
-        
         <div class="destaque">
             <p><strong>Estilo predominante:</strong> {predominante}</p>
             <p><strong>Estilo menos desenvolvido:</strong> {menos_desenvolvido}</p>
         </div>
-        
         <h3>Descrição geral dos 4 estilos:</h3>
-        
         <div class="descricao-estilo">
             <strong>Orientado para Pessoas (Relacional):</strong>
             <p>valoriza o vínculo e empatia. Escuta com atenção às emoções e constrói confiança pela proximidade.</p>
         </div>
-        
         <div class="descricao-estilo">
             <strong>Orientado para Ação (Processo):</strong>
             <p>prefere conversas diretas, voltadas à solução e ao resultado. Gosta de foco e clareza, mas pode soar apressado.</p>
         </div>
-        
         <div class="descricao-estilo">
             <strong>Orientado para o Tempo (Solução imediata):</strong>
             <p>preza pela objetividade e gosta de ritmo na conversa. Evita desvios e busca eficiência.</p>
         </div>
-        
         <div class="descricao-estilo">
             <strong>Orientado para Mensagem (Conteúdo / Analítico):</strong>
             <p>escuta para compreender o sentido exato do que está sendo dito. Avalia argumentos, identifica contradições e busca precisão na comunicação.</p>
         </div>
-        
         <p class="footer">Essas informações serão aprofundadas no relatório anexo.</p>
     </div>
 </body>
-</html>
-"""
+</html>"""
     
     return html
 
 
+@app.get("/")
+async def root():
+    return {"message": "API Relatório LSP-R", "version": "2.2.0"}
+
+
+@app.get("/health")
+async def health():
+    checks = {
+        "templates_dir": TEMPLATES_DIR.exists(),
+        "corpos_pdf_dir": CORPOS_PDF_DIR.exists(),
+        "libreoffice": shutil.which("libreoffice") is not None
+    }
+    return {
+        "status": "ok" if all(checks.values()) else "warning",
+        "version": "2.2.0",
+        "checks": checks
+    }
+
+
+@app.get("/templates-disponiveis")
+async def listar_templates():
+    templates_completos = []
+    for arquivo in ARQUIVOS_VALIDOS:
+        docx_exists = (TEMPLATES_DIR / f"{arquivo}.docx").exists()
+        pdf_exists = (CORPOS_PDF_DIR / f"{arquivo}.pdf").exists()
+        if docx_exists and pdf_exists:
+            templates_completos.append(arquivo)
+    
+    return {"templates_completos": templates_completos, "total": len(templates_completos)}
+
+
 @app.post("/gerar-html-email")
 async def gerar_html_email(dados: RelatorioRequest):
-    """
-    Retorna apenas o HTML da capa para usar no corpo do email
-    Não gera PDF - só o HTML
-    """
+    """Retorna apenas HTML para corpo de email"""
     try:
-        # Validações básicas
         if dados.predominante == dados.menosDesenvolvido:
             raise HTTPException(400, "Predominante e menos desenvolvido não podem ser iguais")
         
@@ -563,22 +502,15 @@ async def gerar_html_email(dados: RelatorioRequest):
 
 @app.post("/gerar-relatorio-completo")
 async def gerar_relatorio_completo(dados: RelatorioRequest):
-    """
-    Gera PDF E retorna HTML para email em uma única chamada
-    Retorna JSON com: { pdf_base64, html, filename }
-    Útil para envio de emails com PDF anexo + HTML no corpo
-    """
+    """Gera PDF E HTML em uma única chamada"""
     try:
-        logger.info("="*60)
         logger.info("REQUISIÇÃO COMPLETA (PDF + HTML)")
-        logger.info("="*60)
         
-        # Validações
         if dados.predominante == dados.menosDesenvolvido:
-            raise HTTPException(400, "Predominante e menos desenvolvido não podem ser iguais")
+            raise HTTPException(400, "Estilos não podem ser iguais")
         
         if dados.arquivo not in ARQUIVOS_VALIDOS:
-            raise HTTPException(400, f"Arquivo inválido")
+            raise HTTPException(400, "Arquivo inválido")
         
         template_docx = TEMPLATES_DIR / f"{dados.arquivo}.docx"
         corpo_pdf = CORPOS_PDF_DIR / f"{dados.arquivo}.pdf"
@@ -586,27 +518,21 @@ async def gerar_relatorio_completo(dados: RelatorioRequest):
         if not template_docx.exists() or not corpo_pdf.exists():
             raise HTTPException(404, "Template ou corpo não encontrado")
         
-        # Arquivos temporários
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         temp_docx = TEMP_DIR / f"capa_{timestamp}.docx"
         temp_pdf = TEMP_DIR / f"capa_{timestamp}.pdf"
         temp_final = TEMP_DIR / f"final_{timestamp}.pdf"
         
-        # Gerar PDF
         substituir_campos_docx(template_docx, dados, temp_docx)
         converter_docx_para_pdf(temp_docx, temp_pdf)
         juntar_pdfs(temp_pdf, corpo_pdf, temp_final)
         
-        # Ler PDF como base64
         with open(temp_final, 'rb') as f:
-            pdf_bytes = f.read()
-            pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+            pdf_base64 = base64.b64encode(f.read()).decode('utf-8')
         
-        # Gerar HTML
         html = gerar_html_capa(dados)
         
         logger.info("✓ PDF e HTML gerados")
-        logger.info("="*60)
         
         return {
             "success": True,
@@ -625,12 +551,12 @@ async def gerar_relatorio_completo(dados: RelatorioRequest):
 
 @app.post("/gerar-relatorio")
 async def gerar_relatorio(dados: RelatorioRequest):
+    """Gera PDF e retorna arquivo para download"""
     try:
         logger.info("="*60)
         logger.info("NOVA REQUISIÇÃO")
         logger.info("="*60)
         
-        # Validações
         if dados.predominante == dados.menosDesenvolvido:
             raise HTTPException(400, "Predominante e menos desenvolvido não podem ser iguais")
         
@@ -646,14 +572,12 @@ async def gerar_relatorio(dados: RelatorioRequest):
         if not corpo_pdf.exists():
             raise HTTPException(404, f"Corpo não encontrado")
         
-        # Arquivos temporários
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         temp_docx = TEMP_DIR / f"capa_{timestamp}.docx"
         temp_pdf = TEMP_DIR / f"capa_{timestamp}.pdf"
         temp_final = TEMP_DIR / f"final_{timestamp}.pdf"
         
         try:
-            # Processar
             substituir_campos_docx(template_docx, dados, temp_docx)
             converter_docx_para_pdf(temp_docx, temp_pdf)
             juntar_pdfs(temp_pdf, corpo_pdf, temp_final)
@@ -681,7 +605,7 @@ async def gerar_relatorio(dados: RelatorioRequest):
 @app.on_event("startup")
 async def startup():
     logger.info("="*60)
-    logger.info("API Relatório LSP-R v2.2.0 - Tabela DOCX Real")
+    logger.info("API Relatório LSP-R v2.2.0")
     logger.info("="*60)
 
 
