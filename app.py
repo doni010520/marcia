@@ -1,6 +1,6 @@
 """
 API para geração de Relatórios LSP-R
-VERSÃO 2.3.0 - HTML Email com primeira página completa
+VERSÃO 2.3.1 - HTML Email com primeira página completa
 """
 
 from fastapi import FastAPI, HTTPException
@@ -26,7 +26,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="API Relatório LSP-R", version="2.3.0")
+app = FastAPI(title="API Relatório LSP-R", version="2.3.1")
 
 # Diretórios
 BASE_DIR = Path(__file__).parent
@@ -365,28 +365,34 @@ def gerar_html_capa(dados: RelatorioRequest) -> str:
             color: #000000;
         }}
         
-        .tabela-container {{
+        /* TABELA SIMPLES SEM BORDAS - Alinhamento perfeito */
+        table {{
+            width: 100%;
+            border-collapse: collapse;
             margin: 15px 0 25px 0;
+            border: none;
         }}
         
-        .tabela-linha {{
-            display: flex;
-            margin-bottom: 2px;
+        table td {{
+            padding: 2px 0;
+            border: none;
+            font-size: 12pt;
+            line-height: 1.15;
         }}
         
-        .tabela-cabecalho {{
-            font-weight: bold;
-            margin-bottom: 5px;
-        }}
-        
-        .tabela-col-esquerda {{
-            flex: 1;
+        table td:first-child {{
+            text-align: left;
             padding-right: 20px;
         }}
         
-        .tabela-col-direita {{
-            width: 100px;
+        table td:last-child {{
             text-align: center;
+            width: 100px;
+        }}
+        
+        table tr.cabecalho td {{
+            font-weight: bold;
+            padding-bottom: 5px;
         }}
         
         .destaque-box {{
@@ -455,21 +461,21 @@ def gerar_html_capa(dados: RelatorioRequest) -> str:
     
     <h2>Resultado geral</h2>
     
-    <div class="tabela-container">
-        <div class="tabela-linha tabela-cabecalho">
-            <div class="tabela-col-esquerda">Estilo de escuta</div>
-            <div class="tabela-col-direita">Pontuação</div>
-        </div>"""
+    <table>
+        <tr class="cabecalho">
+            <td>Estilo de escuta</td>
+            <td>Pontuação</td>
+        </tr>"""
     
     for nome, pont in dados_tabela:
         html += f"""
-        <div class="tabela-linha">
-            <div class="tabela-col-esquerda">{nome}</div>
-            <div class="tabela-col-direita">{pont}</div>
-        </div>"""
+        <tr>
+            <td>{nome}</td>
+            <td>{pont}</td>
+        </tr>"""
     
     html += f"""
-    </div>
+    </table>
     
     <div class="destaque-box">
         <p><strong>Estilo predominante:</strong> {predominante}</p>
@@ -505,7 +511,7 @@ def gerar_html_capa(dados: RelatorioRequest) -> str:
 
 @app.get("/")
 async def root():
-    return {"message": "API Relatório LSP-R", "version": "2.3.0"}
+    return {"message": "API Relatório LSP-R", "version": "2.3.1"}
 
 
 @app.get("/health")
@@ -517,7 +523,7 @@ async def health():
     }
     return {
         "status": "ok" if all(checks.values()) else "warning",
-        "version": "2.3.0",
+        "version": "2.3.1",
         "checks": checks
     }
 
@@ -546,7 +552,7 @@ async def gerar_html_email(dados: RelatorioRequest):
         return {
             "html": html,
             "participante": dados.participante,
-            "version": "2.3.0"
+            "version": "2.3.1"
         }
         
     except HTTPException:
@@ -661,7 +667,7 @@ async def gerar_relatorio(dados: RelatorioRequest):
 @app.on_event("startup")
 async def startup():
     logger.info("="*60)
-    logger.info("API Relatório LSP-R v2.3.0")
+    logger.info("API Relatório LSP-R v2.3.1")
     logger.info("="*60)
 
 
